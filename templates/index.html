@@ -1,0 +1,704 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>S3 Inventory Search</title>
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@5.15.4/css/all.min.css" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://use.typekit.net/[YOUR_KIT_CODE].css" rel="stylesheet">
+    <style>
+        :root {
+            --font-fabrik: "fabrik", sans-serif;
+            --font-noto: "Noto Sans", sans-serif;
+        }
+
+        body {
+            font-family: var(--font-noto);
+        }
+
+        h1, h2, h3, .step-number {
+            font-family: var(--font-fabrik);
+        }
+
+        .header-gradient {
+            background: linear-gradient(135deg, #1a365d 0%, #2c5282 100%);
+            color: white;
+            padding: 2rem 0;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+        }
+
+        .header-content {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+        }
+
+        .header-icon {
+            font-size: 2rem;
+            color: #63b3ed;
+        }
+
+        .header-title {
+            font-size: 2.5rem;
+            font-weight: 700;
+            margin: 0;
+            background: linear-gradient(to right, #63b3ed, #90cdf4);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            text-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        }
+
+        .header-subtitle {
+            font-size: 1.1rem;
+            color: #a0aec0;
+            margin-top: 0.5rem;
+        }
+
+        /* Enhanced input field styles */
+        .enhanced-input {
+            border: 2px solid #e2e8f0;
+            border-radius: 0.5rem;
+            padding: 0.75rem 1rem;
+            width: 100%;
+            font-size: 1rem;
+            transition: all 0.2s ease;
+            background-color: #f8fafc;
+            box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+        }
+
+        .enhanced-input:focus {
+            border-color: #4299e1;
+            box-shadow: 0 0 0 3px rgba(66, 153, 225, 0.1);
+            outline: none;
+            background-color: white;
+        }
+
+        .enhanced-input::placeholder {
+            color: #a0aec0;
+        }
+
+        .loading {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.5);
+            z-index: 1000;
+        }
+        .loading-content {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            text-align: center;
+            color: white;
+        }
+        .spinner {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #3498db;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 1rem;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        /* Update chip styles */
+        .bucket-chip {
+            font-family: var(--font-noto);
+            font-weight: 500;
+        }
+
+        /* Update table styles */
+        .table-header {
+            font-family: var(--font-noto);
+            font-weight: 600;
+        }
+
+        /* Update button styles */
+        .btn {
+            font-family: var(--font-noto);
+            font-weight: 500;
+        }
+    </style>
+</head>
+<body class="bg-gray-100">
+    <div class="min-h-screen">
+        <!-- Header -->
+        <header class="header-gradient">
+            <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+                <div class="header-content">
+                    <i class="fas fa-cloud-upload-alt header-icon"></i>
+                    <div>
+                        <h1 class="header-title">S3 Inventory Search</h1>
+                        <p class="header-subtitle">Search and analyze your S3 inventory data</p>
+                    </div>
+                </div>
+            </div>
+        </header>
+
+        <!-- Main Content -->
+        <main class="max-w-7xl mx-auto py-6 sm:px-6 lg:px-8">
+            <!-- Search Form -->
+            <form id="searchForm" class="space-y-6">
+                <!-- Step 1: Bucket Selection -->
+                <div class="bg-white shadow rounded-lg p-6">
+                    <div class="flex items-center mb-4">
+                        <div class="flex-shrink-0 h-8 w-8 rounded-full bg-blue-600 flex items-center justify-center text-white font-semibold step-number">1</div>
+                        <h2 class="ml-3 text-lg font-medium text-gray-900">Select Buckets</h2>
+                    </div>
+                    <div class="space-y-4">
+                        <div class="bg-white border border-gray-300 rounded-md p-3 min-h-[100px]" id="bucketChipsContainer">
+                            <!-- Bucket chips will be added here -->
+                        </div>
+                        <div class="flex space-x-2">
+                            <input type="text" id="newBucket" name="newBucket" placeholder="Enter new bucket name"
+                                class="enhanced-input">
+                            <button type="button" id="addBucket"
+                                class="btn inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500">
+                                Add Bucket
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Step 2: Manifest Selection -->
+                <div class="bg-white shadow rounded-lg p-6">
+                    <div class="flex items-center mb-4">
+                        <div class="flex-shrink-0 h-8 w-8 rounded-full bg-blue-600 flex items-center justify-center text-white font-semibold step-number">2</div>
+                        <h2 class="ml-3 text-lg font-medium text-gray-900">Select Manifests</h2>
+                    </div>
+                    <div class="space-y-4">
+                        <div class="flex justify-end">
+                            <button type="button" id="getLatestManifests"
+                                class="btn inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500">
+                                Get Latest Manifests
+                            </button>
+                        </div>
+                        <div class="overflow-x-auto">
+                            <table id="manifestTable" class="min-w-full divide-y divide-gray-200">
+                                <thead class="bg-gray-50">
+                                    <tr>
+                                        <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider table-header">
+                                            <input type="checkbox" id="selectAllManifests" class="rounded border-gray-300 text-blue-600 focus:ring-blue-500">
+                                        </th>
+                                        <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider table-header">Bucket</th>
+                                        <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider table-header">Added Date</th>
+                                        <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider table-header">Full Path</th>
+                                    </tr>
+                                </thead>
+                                <tbody class="bg-white divide-y divide-gray-200" id="manifestTableBody">
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Step 3: Operation Selection -->
+                <div class="bg-white shadow rounded-lg p-6">
+                    <div class="flex items-center mb-4">
+                        <div class="flex-shrink-0 h-8 w-8 rounded-full bg-blue-600 flex items-center justify-center text-white font-semibold step-number">3</div>
+                        <h2 class="ml-3 text-lg font-medium text-gray-900">Select Operation</h2>
+                    </div>
+                    <div class="space-y-4">
+                        <div class="space-y-2">
+                            <div class="flex items-center space-x-4">
+                                <div class="flex items-center">
+                                    <input type="radio" id="searchOperation" name="operationType" value="search" checked
+                                        class="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300">
+                                    <label for="searchOperation" class="ml-2 block text-sm text-gray-900">
+                                        Search for String
+                                    </label>
+                                </div>
+                                <div class="flex items-center">
+                                    <input type="radio" id="calculateOperation" name="operationType" value="calculate"
+                                        class="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300">
+                                    <label for="calculateOperation" class="ml-2 block text-sm text-gray-900">
+                                        Calculate Path Depth Size
+                                    </label>
+                                </div>
+                            </div>
+                        </div>
+                        <div id="searchStringContainer">
+                            <label for="searchString" class="block text-sm font-medium text-gray-700">Search String</label>
+                            <input type="text" id="searchString" name="searchString"
+                                class="enhanced-input mt-1">
+                        </div>
+                        <div id="pathDepthContainer" style="display: none;">
+                            <label for="pathDepth" class="block text-sm font-medium text-gray-700">Path Depth</label>
+                            <input type="number" id="pathDepth" name="pathDepth" min="1" value="3"
+                                class="enhanced-input mt-1">
+                            <p class="mt-1 text-sm text-gray-500">Enter the depth in the S3 path to analyze (1-based)</p>
+                        </div>
+                        <div class="flex justify-end">
+                            <button type="submit"
+                                class="btn inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500">
+                                <i class="fas fa-search mr-2"></i>
+                                Execute
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </form>
+
+            <!-- Results Section -->
+            <div id="results" class="bg-white shadow rounded-lg p-6" style="display: none;">
+                <div class="flex justify-between items-center mb-4">
+                    <h2 class="text-xl font-semibold text-gray-900">Results</h2>
+                    <div class="text-sm text-gray-500">
+                        <span id="resultCount"></span>
+                        <span id="totalSize" class="ml-4"></span>
+                    </div>
+                </div>
+                <div class="overflow-x-auto">
+                    <table id="resultsTable" class="min-w-full divide-y divide-gray-200">
+                        <thead class="bg-gray-50">
+                            <tr id="tableHeader"></tr>
+                        </thead>
+                        <tbody class="bg-white divide-y divide-gray-200" id="tableBody"></tbody>
+                    </table>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- Loading Overlay -->
+    <div id="loading" class="loading">
+        <div class="loading-content">
+            <div class="spinner"></div>
+            <p class="text-xl">Processing...</p>
+        </div>
+    </div>
+
+    <script>
+        // Format file size
+        function formatSize(bytes) {
+            const units = ['B', 'KB', 'MB', 'GB', 'TB', 'PB'];
+            let size = bytes;
+            let unitIndex = 0;
+            while (size >= 1024 && unitIndex < units.length - 1) {
+                size /= 1024;
+                unitIndex++;
+            }
+            return `${size.toFixed(2)} ${units[unitIndex]}`;
+        }
+
+        // Show loading overlay
+        function showLoading() {
+            document.getElementById('loading').style.display = 'block';
+        }
+
+        // Hide loading overlay
+        function hideLoading() {
+            document.getElementById('loading').style.display = 'none';
+        }
+
+        // Load bucket history
+        async function loadBucketHistory() {
+            try {
+                const response = await fetch('/api/buckets');
+                const buckets = await response.json();
+                const container = document.getElementById('bucketChipsContainer');
+                
+                buckets.forEach(bucket => {
+                    addBucketChip(bucket);
+                });
+
+                // Load manifests for initially selected buckets
+                const selectedBuckets = getSelectedBuckets();
+                if (selectedBuckets.length > 0) {
+                    fetchManifests();
+                }
+            } catch (error) {
+                console.error('Error loading bucket history:', error);
+            }
+        }
+
+        // Add a bucket chip to the container
+        function addBucketChip(bucketName) {
+            const container = document.getElementById('bucketChipsContainer');
+            const chip = document.createElement('div');
+            chip.className = 'bucket-chip inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-gray-100 text-gray-800 mr-2 mb-2 cursor-pointer hover:bg-gray-200';
+            chip.dataset.bucket = bucketName;
+            
+            const text = document.createElement('span');
+            text.textContent = bucketName;
+            
+            const removeButton = document.createElement('button');
+            removeButton.className = 'ml-2 text-gray-500 hover:text-gray-700 focus:outline-none';
+            removeButton.innerHTML = '&times;';
+            removeButton.onclick = (e) => {
+                e.stopPropagation();
+                chip.remove();
+                loadCachedManifests();
+            };
+            
+            chip.appendChild(text);
+            chip.appendChild(removeButton);
+            
+            chip.onclick = () => {
+                chip.classList.toggle('bg-blue-100');
+                chip.classList.toggle('text-blue-800');
+                loadCachedManifests();
+            };
+            
+            container.appendChild(chip);
+        }
+
+        // Get selected buckets
+        function getSelectedBuckets() {
+            const selectedChips = document.querySelectorAll('#bucketChipsContainer .bg-blue-100');
+            return Array.from(selectedChips).map(chip => chip.dataset.bucket);
+        }
+
+        // Handle add bucket button click
+        document.getElementById('addBucket').addEventListener('click', () => {
+            const newBucketInput = document.getElementById('newBucket');
+            const bucketName = newBucketInput.value.trim();
+            
+            if (bucketName) {
+                // Check if bucket already exists
+                const existingChips = document.querySelectorAll('#bucketChipsContainer [data-bucket]');
+                const bucketExists = Array.from(existingChips).some(chip => chip.dataset.bucket === bucketName);
+                
+                if (!bucketExists) {
+                    addBucketChip(bucketName);
+                    newBucketInput.value = '';
+                    loadCachedManifests();
+                } else {
+                    alert('This bucket is already in the list');
+                }
+            }
+        });
+
+        // Handle enter key in new bucket input
+        document.getElementById('newBucket').addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                document.getElementById('addBucket').click();
+            }
+        });
+
+        // Modified loadCachedManifests function
+        async function loadCachedManifests() {
+            const selectedBuckets = getSelectedBuckets();
+            const tableBody = document.getElementById('manifestTableBody');
+            
+            if (selectedBuckets.length === 0) {
+                tableBody.innerHTML = '';
+                return;
+            }
+
+            try {
+                // Build query string with all selected buckets
+                const queryString = selectedBuckets.map(bucket => `bucket=${encodeURIComponent(bucket)}`).join('&');
+                const response = await fetch(`/api/manifests/cached?${queryString}`);
+                const data = await response.json();
+                
+                // Pre-build the HTML string instead of using DOM operations
+                let htmlContent = '';
+                let totalManifests = 0;
+
+                for (const bucket in data) {
+                    if (data[bucket] && data[bucket].length > 0) {
+                        data[bucket].forEach(manifest => {
+                            htmlContent += `
+                                <tr>
+                                    <td class="px-6 py-4 whitespace-nowrap">
+                                        <input type="checkbox" class="manifest-checkbox rounded border-gray-300 text-blue-600 focus:ring-blue-500" 
+                                            value="${manifest.key}" data-bucket="${bucket}">
+                                    </td>
+                                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${bucket}</td>
+                                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${manifest.added_date}</td>
+                                    <td class="px-6 py-4 text-sm text-gray-900">${manifest.key}</td>
+                                </tr>
+                            `;
+                            totalManifests++;
+                        });
+                    }
+                }
+
+                // Single DOM update
+                tableBody.innerHTML = htmlContent;
+                
+                if (totalManifests > 0) {
+                    console.log(`Loaded ${totalManifests} cached manifests across ${Object.keys(data).length} bucket(s)`);
+                }
+            } catch (error) {
+                console.error('Error loading cached manifests:', error);
+                tableBody.innerHTML = '';
+            }
+        }
+
+        // Modified fetchManifests function
+        async function fetchManifests() {
+            const selectedBuckets = getSelectedBuckets();
+            
+            if (selectedBuckets.length === 0) {
+                return;
+            }
+
+            showLoading();
+            try {
+                console.log('Fetching manifests for buckets:', selectedBuckets);
+                
+                const response = await fetch('/api/manifests', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ 
+                        bucket_names: selectedBuckets
+                    }),
+                });
+                
+                const data = await response.json();
+                console.log('Received manifest data:', data);
+                
+                const tableBody = document.getElementById('manifestTableBody');
+                tableBody.innerHTML = '';
+                
+                if (!response.ok) {
+                    // Display error message from the API response
+                    const errorMessage = data.error || 'An unexpected error occurred';
+                    console.error('Error fetching manifests:', errorMessage);
+                    alert(errorMessage);
+                    hideLoading();
+                    return;
+                }
+                
+                // Create document fragment for better performance
+                const fragment = document.createDocumentFragment();
+                let totalManifests = 0;
+
+                for (const bucket in data) {
+                    if (data[bucket] && data[bucket].length > 0) {
+                        data[bucket].forEach(manifest => {
+                            const row = document.createElement('tr');
+                            
+                            row.innerHTML = `
+                                <td class="px-6 py-4 whitespace-nowrap">
+                                    <input type="checkbox" class="manifest-checkbox rounded border-gray-300 text-blue-600 focus:ring-blue-500" 
+                                        value="${manifest.key}" data-bucket="${bucket}">
+                                </td>
+                                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${bucket}</td>
+                                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${manifest.added_date}</td>
+                                <td class="px-6 py-4 text-sm text-gray-900">${manifest.key}</td>
+                            `;
+                            
+                            fragment.appendChild(row);
+                            totalManifests++;
+                        });
+                    }
+                }
+
+                // Append all rows at once
+                tableBody.appendChild(fragment);
+                
+                if (totalManifests === 0) {
+                    alert('No manifests found for the selected buckets. Please check if the buckets have S3 inventory configured.');
+                } else {
+                    console.log(`Total manifests found: ${totalManifests} across ${Object.keys(data).length} bucket(s)`);
+                }
+            } catch (error) {
+                console.error('Error fetching manifests:', error);
+                alert('An error occurred while fetching manifests. Please check the console for details.');
+            } finally {
+                hideLoading();
+            }
+        }
+
+        // Handle select all manifests checkbox
+        document.getElementById('selectAllManifests').addEventListener('change', function() {
+            const checkboxes = document.querySelectorAll('.manifest-checkbox');
+            checkboxes.forEach(checkbox => checkbox.checked = this.checked);
+        });
+
+        // Handle operation type change
+        document.querySelectorAll('input[name="operationType"]').forEach(radio => {
+            radio.addEventListener('change', (e) => {
+                const searchStringContainer = document.getElementById('searchStringContainer');
+                const pathDepthContainer = document.getElementById('pathDepthContainer');
+                const searchStringInput = document.getElementById('searchString');
+                
+                if (e.target.value === 'search') {
+                    searchStringContainer.style.display = 'block';
+                    pathDepthContainer.style.display = 'none';
+                    searchStringInput.required = true;
+                } else {
+                    searchStringContainer.style.display = 'none';
+                    pathDepthContainer.style.display = 'block';
+                    searchStringInput.required = false;
+                }
+            });
+        });
+
+        // Modified form submission
+        document.getElementById('searchForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            showLoading();
+
+            const selectedBuckets = getSelectedBuckets();
+            const selectedManifests = Array.from(document.querySelectorAll('.manifest-checkbox:checked')).map(cb => cb.value);
+            const operationType = document.querySelector('input[name="operationType"]:checked').value;
+            const searchString = document.getElementById('searchString').value;
+            const pathDepth = parseInt(document.getElementById('pathDepth').value);
+
+            if (selectedManifests.length === 0) {
+                alert('Please select at least one manifest');
+                hideLoading();
+                return;
+            }
+
+            try {
+                const endpoint = operationType === 'search' ? '/api/search' : '/api/path-size';
+                const body = {
+                    bucket_name: selectedBuckets[0], // Use the first selected bucket
+                    manifest_keys: selectedManifests
+                };
+
+                if (operationType === 'search') {
+                    if (!searchString) {
+                        alert('Please enter a search string');
+                        hideLoading();
+                        return;
+                    }
+                    body.search_string = searchString;
+                } else {
+                    if (!pathDepth || pathDepth < 1) {
+                        alert('Please enter a valid path depth (1 or greater)');
+                        hideLoading();
+                        return;
+                    }
+                    body.path_depth = pathDepth;
+                }
+
+                console.log('Submitting request:', {
+                    endpoint,
+                    body
+                });
+
+                const response = await fetch(endpoint, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(body),
+                });
+
+                const data = await response.json();
+                
+                if (!response.ok) {
+                    // Display error message from the API response
+                    const errorMessage = data.error || 'An unexpected error occurred';
+                    alert(errorMessage);
+                    hideLoading();
+                    return;
+                }
+
+                if (data.error) {
+                    alert(data.error);
+                    hideLoading();
+                    return;
+                }
+
+                // Display results
+                const resultsDiv = document.getElementById('results');
+                resultsDiv.style.display = 'block';
+
+                // Update summary
+                if (operationType === 'search') {
+                    if (data.type === 'folders') {
+                        document.getElementById('resultCount').textContent = `${data.total_folders} folders`;
+                    } else {
+                        document.getElementById('resultCount').textContent = `${data.total_objects} objects`;
+                    }
+                } else {
+                    document.getElementById('resultCount').textContent = `${data.total_paths} paths`;
+                }
+                document.getElementById('totalSize').textContent = `Total Size: ${formatSize(data.total_size)}`;
+
+                // Update table
+                const tableHeader = document.getElementById('tableHeader');
+                const tableBody = document.getElementById('tableBody');
+                
+                // Clear existing content
+                tableHeader.innerHTML = '';
+                tableBody.innerHTML = '';
+
+                // Add headers based on operation type
+                if (operationType === 'search') {
+                    if (data.type === 'folders') {
+                        tableHeader.innerHTML = `
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Folder Path</th>
+                            <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Size</th>
+                            <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Files</th>
+                        `;
+                    } else {
+                        tableHeader.innerHTML = `
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Object Key</th>
+                            <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Size</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Last Modified</th>
+                        `;
+                    }
+                } else {
+                    tableHeader.innerHTML = `
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Path</th>
+                        <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Size</th>
+                        <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Objects</th>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Type</th>
+                    `;
+                }
+
+                // Add rows
+                data.results.forEach(result => {
+                    const row = document.createElement('tr');
+                    if (operationType === 'search') {
+                        if (data.type === 'folders') {
+                            row.innerHTML = `
+                                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${result.Folder_Path}</td>
+                                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-right">${formatSize(result.Total_Size)}</td>
+                                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-right">${result.File_Count}</td>
+                            `;
+                        } else {
+                            row.innerHTML = `
+                                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${result.Key}</td>
+                                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-right">${formatSize(result.Size)}</td>
+                                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${result.LastModifiedDate}</td>
+                            `;
+                        }
+                    } else {
+                        row.innerHTML = `
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${result.path}</td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-right">${formatSize(result.total_size)}</td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-right">${result.object_count}</td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${result.is_folder ? 'Folder' : 'Object'}</td>
+                        `;
+                    }
+                    tableBody.appendChild(row);
+                });
+
+            } catch (error) {
+                console.error('Error:', error);
+                alert('An error occurred while processing the request');
+            } finally {
+                hideLoading();
+            }
+        });
+
+        // Handle get latest manifests button
+        document.getElementById('getLatestManifests').addEventListener('click', fetchManifests);
+
+        // Initialize the page
+        loadBucketHistory();
+    </script>
+</body>
+</html> 
