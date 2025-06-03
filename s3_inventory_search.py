@@ -128,38 +128,176 @@ def display_results(folder_summary: pd.DataFrame, is_folder_match: bool):
     
     console.print(table)
 
-def search_inventory(bucket_name, manifest_key, search_string, s3_client=None):
-    """Search for objects in the specified manifest."""
+def search_inventory(bucket_name: str, manifest_keys: List[str], search_string: str, s3_client=None) -> Dict[str, Any]:
+    """
+    Search through S3 inventory files for objects matching the search string.
+    
+    Args:
+        bucket_name (str): Name of the S3 bucket
+        manifest_keys (List[str]): List of manifest keys to process
+        search_string (str): String to search for in object keys
+        s3_client: Optional boto3 S3 client. If not provided, one will be created.
+    
+    Returns:
+        Dict[str, Any]: Dictionary containing search results and metadata
+    """
     if s3_client is None:
-        from s3_utils import get_s3_client
         s3_client = get_s3_client()
     
     try:
-        # Get the manifest file
-        response = s3_client.get_object(Bucket=bucket_name, Key=manifest_key)
-        manifest = json.loads(response['Body'].read().decode('utf-8'))
+        all_matches = []
+        print(f"Processing {len(manifest_keys)} manifest keys: {manifest_keys}")  # Debug log
         
-        # Get the inventory files
-        inventory_files = []
-        for file in manifest['files']:
-            response = s3_client.get_object(Bucket=bucket_name, Key=file['key'])
-            inventory_files.append(pd.read_csv(response['Body']))
+        for manifest_key in manifest_keys:
+            if not manifest_key or not isinstance(manifest_key, str):
+                print(f"Skipping invalid manifest key: {manifest_key}")  # Debug log
+                continue
+                
+            # Extract source from manifest path (e.g., "inventory/2024-03-21/manifest.json" -> "inventory")
+            source = manifest_key.split('/')[0] if manifest_key else ''
+            print(f"Processing manifest: {manifest_key}, source: {source}")  # Debug log
+            
+            try:
+                # Get the manifest file
+                print(f"Fetching manifest from bucket {bucket_name}, key {manifest_key}")  # Debug log
+                response = s3_client.get_object(Bucket=bucket_name, Key=manifest_key)
+                manifest = json.loads(response['Body'].read().decode('utf-8'))
+                print(f"Found manifest with {len(manifest['files'])} files")
+                
+                # Process each inventory file
+                for file_info in manifest['files']:
+                    try:
+                        inventory_key = file_info['key']
+                        print(f"Processing inventory file: {inventory_key}")  # Debug log
+                        
+                        # Get the inventory file
+                        file_obj = s3_client.get_object(Bucket=bucket_name, Key=inventory_key)
+                        
+                        # Read and process the inventory file
+                        with gzip.open(file_obj['Body'], mode='rt') as buffer:
+                            # Read CSV without header to handle unnamed columns
+                            df = pd.read_csv(buffer, header=None)
+                            
+                            # Get the actual number of columns
+                            num_columns = len(df.columns)
+                            print(f"Found {num_columns} columns in inventory file")  # Debug log
+                            
+                            # Define base columns that we know exist in S3 inventory
+                            base_columns = ['Bucket', 'Key', 'Size', 'LastModifiedDate', 'StorageClass']
+                            
+                            # Create column names based on actual number of columns
+                            if num_columns == len(base_columns):
+                                df.columns = base_columns
+                            elif num_columns > len(base_columns):
+                                # If we have more columns than expected, add them as Unnamed_X
+                                additional_columns = [f'Unnamed_{i}' for i in range(len(base_columns), num_columns)]
+                                df.columns = base_columns + additional_columns
+                            else:
+                                # If we have fewer columns than expected, only use the columns we have
+                                df.columns = base_columns[:num_columns]
+                            
+                            # Convert Size column to numeric and fill NaN with 0
+                            if 'Size' in df.columns:
+                                df['Size'] = pd.to_numeric(df['Size'], errors='coerce').fillna(0)
+                            else:
+                                # If Size column is not present, add it with zeros
+                                df['Size'] = 0
+                            
+                            # Search for matches
+                            if 'Key' in df.columns:
+                                # First, find all objects that contain the search string
+                                print(f"Searching for '{search_string}' in {len(df)} objects")  # Debug log
+                                matches = df[df['Key'].str.contains(search_string, case=False, na=False)].copy()
+                                print(f"Found {len(matches)} initial matches")  # Debug log
+                                
+                                if not matches.empty:
+                                    # Add source information before processing
+                                    matches['Source'] = source
+                                    
+                                    # For each matching object, find its containing folder
+                                    def get_folder_path(key, search_str):
+                                        parts = key.split('/')
+                                        for i, part in enumerate(parts):
+                                            if search_str.lower() in part.lower():
+                                                # Return the path up to and including the matching folder
+                                                folder_path = '/'.join(parts[:i+1])
+                                                print(f"Found matching folder: {folder_path}")  # Debug log
+                                                return folder_path
+                                        return key
+
+                                    matches['Folder_Path'] = matches['Key'].apply(
+                                        lambda x: get_folder_path(x, search_string)
+                                    )
+                                    
+                                    # Group by folder path and source
+                                    folder_matches = matches.groupby(['Folder_Path', 'Source']).agg({
+                                        'Size': ['sum', 'count']
+                                    }).reset_index()
+                                    
+                                    # Rename columns
+                                    folder_matches.columns = ['Folder_Path', 'Source', 'Total_Size', 'File_Count']
+                                    
+                                    # Add bucket information
+                                    folder_matches['Bucket'] = bucket_name
+                                    
+                                    print(f"Grouped into {len(folder_matches)} unique folders")  # Debug log
+                                    print("Folder matches:")  # Debug log
+                                    for _, row in folder_matches.iterrows():
+                                        print(f"  {row['Folder_Path']} - {row['Total_Size']} bytes, {row['File_Count']} files")  # Debug log
+                                    
+                                    # Convert to list of dictionaries and handle NaN values
+                                    folder_results = folder_matches.to_dict('records')
+                                    for result in folder_results:
+                                        # Convert any remaining NaN values to None
+                                        for key, value in result.items():
+                                            if pd.isna(value):
+                                                result[key] = None
+                                    
+                                    all_matches.extend(folder_results)
+                                else:
+                                    print(f"No matches found for '{search_string}'")  # Debug log
+                            else:
+                                # If Key column is not present, skip this file
+                                print(f"Skipping file {inventory_key} - no Key column found")
+                                continue
+                            
+                            print(f"Found {len(matches)} matches in {inventory_key}")  # Debug log
+                            
+                    except Exception as e:
+                        print(f"Error processing inventory file {file_info['key']}: {str(e)}")
+                        continue
+            except Exception as e:
+                print(f"Error processing manifest {manifest_key}: {str(e)}")
+                continue
         
-        # Combine all inventory files
-        inventory_df = pd.concat(inventory_files, ignore_index=True)
+        if not all_matches:
+            print("No matches found")  # Debug log
+            return {
+                'type': 'folders',
+                'results': [],
+                'total_folders': 0,
+                'total_size': 0
+            }
         
-        # Search for objects matching the search string
-        if search_string:
-            mask = inventory_df['Key'].str.contains(search_string, case=False, na=False)
-            results = inventory_df[mask]
-        else:
-            results = inventory_df
+        # Convert to DataFrame for easier processing
+        matches_df = pd.DataFrame(all_matches)
+        print(f"Total matches found: {len(matches_df)}")
         
-        return results
+        # Calculate totals
+        total_size = int(matches_df['Total_Size'].sum())
+        total_folders = len(matches_df)
+        
+        print(f"Returning {total_folders} folder matches")  # Debug log
+        return {
+            'type': 'folders',
+            'results': all_matches,
+            'total_folders': total_folders,
+            'total_size': total_size
+        }
         
     except Exception as e:
-        print(f"Error searching inventory: {str(e)}")
-        raise
+        print(f"Search failed: {str(e)}")
+        raise Exception(f"Search failed: {str(e)}")
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Search S3 inventory for objects containing a specific string')
@@ -181,7 +319,7 @@ if __name__ == "__main__":
         else:
             if not args.manifest_key or not args.search_string:
                 parser.error("manifest_key and search_string are required when not using --list-manifests")
-            search_inventory(args.bucket_name, args.manifest_key, args.search_string)
+            search_inventory(args.bucket_name, [args.manifest_key], args.search_string)
     except Exception as e:
         console.print(Panel(f"[red]Error: {e}[/red]", title="Error"))
         sys.exit(1) 

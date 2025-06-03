@@ -1,7 +1,6 @@
 from flask import Flask, render_template, request, jsonify, send_file
 from s3_inventory_search import search_inventory
 from s3_inventory_utils import get_latest_inventory_manifests
-from atomx_entity_size import calc_flowcell_size
 from s3_utils import get_s3_client
 import pandas as pd
 import os
@@ -12,6 +11,7 @@ import traceback
 import logging
 from dotenv import load_dotenv
 from s3_path_size import get_path_size
+import io
 
 # Load environment variables
 load_dotenv()
@@ -50,6 +50,12 @@ def save_manifest_cache(cache):
     with open(MANIFEST_CACHE_FILE, 'w') as f:
         json.dump(cache, f, indent=4)
 
+def clear_manifest_cache():
+    """Clear the manifest cache."""
+    if os.path.exists(MANIFEST_CACHE_FILE):
+        os.remove(MANIFEST_CACHE_FILE)
+        logger.info("Manifest cache cleared")
+
 @app.route('/')
 def index():
     """Render the main page."""
@@ -78,6 +84,26 @@ def add_bucket():
     save_bucket_history(buckets)
     
     return jsonify(buckets)
+
+@app.route('/api/buckets/<bucket_name>', methods=['DELETE'])
+def delete_bucket(bucket_name):
+    """Remove a bucket from the history."""
+    try:
+        # Load existing history
+        buckets = load_bucket_history()
+        
+        # Remove the bucket if it exists
+        if bucket_name in buckets:
+            buckets.remove(bucket_name)
+            # Save updated history
+            save_bucket_history(buckets)
+            return jsonify({'message': f'Bucket {bucket_name} removed successfully'})
+        else:
+            return jsonify({'error': f'Bucket {bucket_name} not found in history'}), 404
+            
+    except Exception as e:
+        logger.error(f"Error removing bucket {bucket_name}: {str(e)}")
+        return jsonify({'error': str(e)}), 500
 
 @app.route('/api/manifests', methods=['POST'])
 def get_manifests():
@@ -150,9 +176,10 @@ def get_manifests():
                 response_data[bucket] = [
                     {
                         'key': manifest['key'],
-                        'added_date': manifest['added_date'].replace('T', ' ').split('.')[0]
+                        'added_date': manifest['added_date'].replace('T', ' ').split('.')[0],
+                        'source_bucket': source_bucket  # Add source bucket information
                     }
-                    for account, manifest in manifest_cache[bucket].items()
+                    for source_bucket, manifest in manifest_cache[bucket].items()
                 ]
                 logger.debug(f"Added {len(response_data[bucket])} manifests to response for bucket {bucket}")
             else:
@@ -182,9 +209,10 @@ def get_cached_manifests():
                 result[bucket] = [
                     {
                         'key': manifest['key'],
-                        'added_date': manifest['added_date'].replace('T', ' ').split('.')[0]
+                        'added_date': manifest['added_date'].replace('T', ' ').split('.')[0],
+                        'source_bucket': source_bucket  # Add source bucket information
                     }
-                    for account, manifest in manifest_cache[bucket].items()
+                    for source_bucket, manifest in manifest_cache[bucket].items()
                 ]
                 logger.info(f"Found {len(result[bucket])} manifests for bucket {bucket}")
             else:
@@ -218,25 +246,17 @@ def search():
                     manifest_cache[bucket_name][manifest]['last_used'] = datetime.now().isoformat()
             save_manifest_cache(manifest_cache)
         
-        results = search_inventory(bucket_name, manifest_keys[0], search_string, s3_client)
-        
-        # Convert DataFrame to dict for JSON serialization
-        if isinstance(results, pd.DataFrame):
-            # Convert numeric columns to Python types
-            for col in results.select_dtypes(include=['int64', 'float64']).columns:
-                results[col] = results[col].astype(float)
+        try:
+            results = search_inventory(bucket_name, manifest_keys, search_string, s3_client)
+            logger.debug(f"Search returned results of type: {results.get('type')}")
+            logger.debug(f"Search results structure: {json.dumps(results, indent=2)}")
             
-            # Convert DataFrame to dict
-            results_dict = {
-                'type': 'folders' if 'Folder_Path' in results.columns else 'objects',
-                'results': results.to_dict(orient='records'),
-                'total_folders': len(results) if 'Folder_Path' in results.columns else 0,
-                'total_objects': len(results) if 'Key' in results.columns else 0,
-                'total_size': float(results['Total_Size'].sum() if 'Total_Size' in results.columns else results['Size'].sum())
-            }
-            return jsonify(results_dict)
-        else:
-            return jsonify({'error': 'Invalid results format'}), 500
+            # Results are already in the correct format, just return them
+            return jsonify(results)
+        except Exception as e:
+            logger.error(f"Search failed: {str(e)}")
+            logger.error(f"Traceback: {traceback.format_exc()}")
+            return jsonify({'error': str(e)}), 500
     except Exception as e:
         error_msg = str(e)
         if "Missing required AWS credentials" in error_msg:
@@ -248,46 +268,8 @@ def search():
         elif "Access denied" in error_msg:
             return jsonify({'error': 'Access denied. Please check if your AWS credentials have the necessary permissions.'}), 403
         else:
-            logger.error(f"Error searching inventory: {error_msg}\n{traceback.format_exc()}")
-            return jsonify({'error': f'An unexpected error occurred: {error_msg}'}), 500
-
-@app.route('/api/calculate-size', methods=['POST'])
-def calculate_size():
-    """Calculate sizes for the specified manifests."""
-    data = request.get_json()
-    bucket_name = data.get('bucket_name')
-    manifest_keys = data.get('manifest_keys', [])
-    
-    if not all([bucket_name, manifest_keys]):
-        return jsonify({'error': 'Missing required parameters'}), 400
-    
-    try:
-        # Initialize S3 client using environment variables
-        s3_client = get_s3_client()
-        
-        # Update last used timestamp for manifests
-        manifest_cache = load_manifest_cache()
-        if bucket_name in manifest_cache:
-            for manifest in manifest_keys:
-                if manifest in manifest_cache[bucket_name]:
-                    manifest_cache[bucket_name][manifest]['last_used'] = datetime.now().isoformat()
-            save_manifest_cache(manifest_cache)
-        
-        results = calc_flowcell_size(bucket_name, manifest_keys, s3_client)
-        return jsonify(results)
-    except Exception as e:
-        error_msg = str(e)
-        if "Missing required AWS credentials" in error_msg:
-            return jsonify({'error': 'AWS credentials are missing. Please check your .env file.'}), 401
-        elif "Invalid AWS credentials" in error_msg:
-            return jsonify({'error': 'Invalid AWS credentials. Please check your AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY.'}), 401
-        elif "AWS session token has expired" in error_msg:
-            return jsonify({'error': 'AWS session token has expired. Please refresh your credentials.'}), 401
-        elif "Access denied" in error_msg:
-            return jsonify({'error': 'Access denied. Please check if your AWS credentials have the necessary permissions.'}), 403
-        else:
-            logger.error(f"Error calculating sizes: {error_msg}\n{traceback.format_exc()}")
-            return jsonify({'error': f'An unexpected error occurred: {error_msg}'}), 500
+            logger.error(f"Error searching inventory: {error_msg}")
+            return jsonify({'error': error_msg}), 500
 
 @app.route('/api/path-size', methods=['POST'])
 def calculate_path_size():
@@ -318,6 +300,100 @@ def calculate_path_size():
     except Exception as e:
         logger.error(f"Error calculating path size: {str(e)}")
         return jsonify({'error': str(e)}), 500
+
+@app.route('/api/manifests/clear-cache', methods=['POST'])
+def clear_cache():
+    """Clear the manifest cache."""
+    try:
+        clear_manifest_cache()
+        return jsonify({'message': 'Manifest cache cleared successfully'})
+    except Exception as e:
+        logger.error(f"Error clearing manifest cache: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/download-csv', methods=['POST'])
+def download_csv():
+    """Download search results as a CSV file."""
+    data = request.get_json()
+    bucket_name = data.get('bucket_name')
+    manifest_keys = data.get('manifest_keys', [])
+    search_string = data.get('search_string')
+    operation_type = data.get('operation_type')
+    path_depth = data.get('path_depth')
+    
+    if not all([bucket_name, manifest_keys]):
+        return jsonify({'error': 'Missing required parameters'}), 400
+    
+    try:
+        # Initialize S3 client using environment variables
+        s3_client = get_s3_client()
+        
+        # Get results based on operation type
+        if operation_type == 'search':
+            if not search_string:
+                return jsonify({'error': 'Search string is required for search operation'}), 400
+            results = search_inventory(bucket_name, manifest_keys, search_string, s3_client)
+            
+            # Convert results to DataFrame
+            if results['type'] == 'folders':
+                df = pd.DataFrame(results['results'])
+                # Rename columns for better readability
+                df = df.rename(columns={
+                    'Folder_Path': 'Path',
+                    'Total_Size': 'Size',
+                    'File_Count': 'Object Count'
+                })
+            else:
+                df = pd.DataFrame(results['results'])
+                # Rename columns for better readability
+                df = df.rename(columns={
+                    'Key': 'Path',
+                    'Size': 'Size',
+                    'LastModifiedDate': 'Last Modified'
+                })
+        else:
+            # For path size calculation
+            if not path_depth:
+                return jsonify({'error': 'Path depth is required for path size calculation'}), 400
+            results = get_path_size(bucket_name, manifest_keys, path_depth)
+            df = pd.DataFrame(results)
+            # Rename columns for better readability
+            df = df.rename(columns={
+                'path': 'Path',
+                'total_size': 'Size',
+                'object_count': 'Object Count',
+                'is_folder': 'Is Folder'
+            })
+        
+        # Create CSV in memory
+        output = io.StringIO()
+        df.to_csv(output, index=False)
+        output.seek(0)
+        
+        # Generate filename
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        filename = f"s3_inventory_results_{timestamp}.csv"
+        
+        return send_file(
+            io.BytesIO(output.getvalue().encode('utf-8')),
+            mimetype='text/csv',
+            as_attachment=True,
+            download_name=filename
+        )
+        
+    except Exception as e:
+        error_msg = str(e)
+        if "Missing required AWS credentials" in error_msg:
+            return jsonify({'error': 'AWS credentials are missing. Please check your .env file.'}), 401
+        elif "Invalid AWS credentials" in error_msg:
+            return jsonify({'error': 'Invalid AWS credentials. Please check your AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY.'}), 401
+        elif "AWS session token has expired" in error_msg:
+            return jsonify({'error': 'AWS session token has expired. Please refresh your credentials.'}), 401
+        elif "Access denied" in error_msg:
+            return jsonify({'error': 'Access denied. Please check if your AWS credentials have the necessary permissions.'}), 403
+        else:
+            logger.error(f"Error downloading CSV: {error_msg}")
+            return jsonify({'error': error_msg}), 500
 
 if __name__ == '__main__':
     app.run(debug=True) 

@@ -22,6 +22,92 @@
             font-family: var(--font-fabrik);
         }
 
+        /* Modern table styles */
+        .modern-table {
+            width: 100%;
+            border-collapse: separate;
+            border-spacing: 0;
+            background: white;
+            border-radius: 0.5rem;
+            overflow: hidden;
+            box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06);
+        }
+
+        .modern-table thead {
+            background: #f8fafc;
+            border-bottom: 2px solid #e2e8f0;
+        }
+
+        .modern-table th {
+            padding: 1rem 1.5rem;
+            text-align: left;
+            font-size: 0.875rem;
+            font-weight: 600;
+            color: #4a5568;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            white-space: nowrap;
+        }
+
+        .modern-table td {
+            padding: 1rem 1.5rem;
+            font-size: 0.875rem;
+            color: #2d3748;
+            border-bottom: 1px solid #e2e8f0;
+            transition: background-color 0.2s ease;
+        }
+
+        .modern-table tbody tr:hover {
+            background-color: #f7fafc;
+        }
+
+        .modern-table tbody tr:last-child td {
+            border-bottom: none;
+        }
+
+        /* Right-aligned cells */
+        .modern-table td.text-right,
+        .modern-table th.text-right {
+            text-align: right;
+        }
+
+        /* Monospace for numbers */
+        .modern-table td.text-right {
+            font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+            font-size: 0.8125rem;
+        }
+
+        /* Truncate long text */
+        .modern-table td.truncate {
+            max-width: 300px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        /* Status badges */
+        .status-badge {
+            display: inline-flex;
+            align-items: center;
+            padding: 0.25rem 0.75rem;
+            border-radius: 9999px;
+            font-size: 0.75rem;
+            font-weight: 500;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        .status-badge.folder {
+            background-color: #ebf8ff;
+            color: #2b6cb0;
+        }
+
+        .status-badge.object {
+            background-color: #f0fff4;
+            color: #2f855a;
+        }
+
+        /* Rest of your existing styles... */
         .header-gradient {
             background: linear-gradient(135deg, #1a365d 0%, #2c5282 100%);
             color: white;
@@ -154,6 +240,12 @@
                     <div class="flex items-center mb-4">
                         <div class="flex-shrink-0 h-8 w-8 rounded-full bg-blue-600 flex items-center justify-center text-white font-semibold step-number">1</div>
                         <h2 class="ml-3 text-lg font-medium text-gray-900">Select Buckets</h2>
+                        <div class="ml-2 relative group">
+                            <i class="fas fa-question-circle text-gray-400 hover:text-gray-600 cursor-help"></i>
+                            <div class="absolute left-0 bottom-full mb-2 w-64 p-2 bg-gray-800 text-white text-sm rounded shadow-lg opacity-0 group-hover:opacity-100 transition-opacity duration-200 z-10">
+                                Select the S3 buckets where your inventory files are stored. These are the destination buckets configured in your S3 Inventory settings.
+                            </div>
+                        </div>
                     </div>
                     <div class="space-y-4">
                         <div class="bg-white border border-gray-300 rounded-md p-3 min-h-[100px]" id="bucketChipsContainer">
@@ -177,7 +269,11 @@
                         <h2 class="ml-3 text-lg font-medium text-gray-900">Select Manifests</h2>
                     </div>
                     <div class="space-y-4">
-                        <div class="flex justify-end">
+                        <div class="flex justify-end space-x-2">
+                            <button type="button" id="clearManifestCache"
+                                class="btn inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-red-600 hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500">
+                                Clear Cache
+                            </button>
                             <button type="button" id="getLatestManifests"
                                 class="btn inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500">
                                 Get Latest Manifests
@@ -192,7 +288,8 @@
                                         </th>
                                         <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider table-header">Bucket</th>
                                         <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider table-header">Added Date</th>
-                                        <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider table-header">Full Path</th>
+                                        <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider table-header">Manifest Path</th>
+                                        <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider table-header">Source Bucket</th>
                                     </tr>
                                 </thead>
                                 <tbody class="bg-white divide-y divide-gray-200" id="manifestTableBody">
@@ -227,7 +324,7 @@
                                 </div>
                             </div>
                         </div>
-                        <div id="searchStringContainer">
+                        <div id="searchStringContainer" style="display: none;">
                             <label for="searchString" class="block text-sm font-medium text-gray-700">Search String</label>
                             <input type="text" id="searchString" name="searchString"
                                 class="enhanced-input mt-1">
@@ -249,21 +346,31 @@
                 </div>
             </form>
 
-            <!-- Results Section -->
+            <!-- Results Table -->
             <div id="results" class="bg-white shadow rounded-lg p-6" style="display: none;">
-                <div class="flex justify-between items-center mb-4">
+                <div class="flex justify-between items-center mb-6">
                     <h2 class="text-xl font-semibold text-gray-900">Results</h2>
-                    <div class="text-sm text-gray-500">
-                        <span id="resultCount"></span>
-                        <span id="totalSize" class="ml-4"></span>
+                    <div class="flex items-center space-x-4">
+                        <div class="text-sm text-gray-500 space-x-4">
+                            <span id="resultCount" class="font-medium"></span>
+                            <span id="totalSize" class="font-medium"></span>
+                        </div>
+                        <button id="downloadCsv" class="btn inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500">
+                            <i class="fas fa-download mr-2"></i>
+                            Download CSV
+                        </button>
                     </div>
                 </div>
-                <div class="overflow-x-auto">
-                    <table id="resultsTable" class="min-w-full divide-y divide-gray-200">
+                <div class="overflow-x-auto rounded-lg">
+                    <table class="min-w-full divide-y divide-gray-200">
                         <thead class="bg-gray-50">
-                            <tr id="tableHeader"></tr>
+                            <tr id="resultsTableHeader">
+                                <!-- Headers will be dynamically set based on operation type -->
+                            </tr>
                         </thead>
-                        <tbody class="bg-white divide-y divide-gray-200" id="tableBody"></tbody>
+                        <tbody class="bg-white divide-y divide-gray-200" id="resultsTableBody">
+                            <!-- Results will be populated here -->
+                        </tbody>
                     </table>
                 </div>
             </div>
@@ -281,14 +388,13 @@
     <script>
         // Format file size
         function formatSize(bytes) {
-            const units = ['B', 'KB', 'MB', 'GB', 'TB', 'PB'];
-            let size = bytes;
-            let unitIndex = 0;
-            while (size >= 1024 && unitIndex < units.length - 1) {
-                size /= 1024;
-                unitIndex++;
-            }
-            return `${size.toFixed(2)} ${units[unitIndex]}`;
+            const sizeGB = bytes / (1024 * 1024 * 1024); // Convert to GB
+            return sizeGB.toFixed(2);
+        }
+
+        // Format file size with unit (for display in summary)
+        function formatSizeWithUnit(bytes) {
+            return `${formatSize(bytes)} GB`;
         }
 
         // Show loading overlay
@@ -335,10 +441,41 @@
             const removeButton = document.createElement('button');
             removeButton.className = 'ml-2 text-gray-500 hover:text-gray-700 focus:outline-none';
             removeButton.innerHTML = '&times;';
-            removeButton.onclick = (e) => {
+            removeButton.onclick = async (e) => {
                 e.stopPropagation();
-                chip.remove();
-                loadCachedManifests();
+                try {
+                    // Remove bucket from server
+                    const response = await fetch(`/api/buckets/${encodeURIComponent(bucketName)}`, {
+                        method: 'DELETE',
+                    });
+
+                    if (!response.ok) {
+                        const error = await response.json();
+                        throw new Error(error.error || 'Failed to remove bucket');
+                    }
+
+                    // Remove chip from UI
+                    chip.remove();
+                    
+                    // Clear manifest table and reset UI state
+                    const manifestTableBody = document.getElementById('manifestTableBody');
+                    manifestTableBody.innerHTML = '';
+                    
+                    // Clear any selected manifests
+                    const selectAllCheckbox = document.getElementById('selectAllManifests');
+                    if (selectAllCheckbox) {
+                        selectAllCheckbox.checked = false;
+                    }
+                    
+                    // Hide results section if it's visible
+                    const resultsDiv = document.getElementById('results');
+                    if (resultsDiv) {
+                        resultsDiv.style.display = 'none';
+                    }
+                } catch (error) {
+                    console.error('Error removing bucket:', error);
+                    alert('Error removing bucket: ' + error.message);
+                }
             };
             
             chip.appendChild(text);
@@ -347,7 +484,27 @@
             chip.onclick = () => {
                 chip.classList.toggle('bg-blue-100');
                 chip.classList.toggle('text-blue-800');
-                loadCachedManifests();
+                
+                // Only load manifests if we're selecting a bucket, not deselecting
+                if (chip.classList.contains('bg-blue-100')) {
+                    loadCachedManifests();
+                } else {
+                    // Clear manifest table when deselecting
+                    const manifestTableBody = document.getElementById('manifestTableBody');
+                    manifestTableBody.innerHTML = '';
+                    
+                    // Clear any selected manifests
+                    const selectAllCheckbox = document.getElementById('selectAllManifests');
+                    if (selectAllCheckbox) {
+                        selectAllCheckbox.checked = false;
+                    }
+                    
+                    // Hide results section if it's visible
+                    const resultsDiv = document.getElementById('results');
+                    if (resultsDiv) {
+                        resultsDiv.style.display = 'none';
+                    }
+                }
             };
             
             container.appendChild(chip);
@@ -360,7 +517,7 @@
         }
 
         // Handle add bucket button click
-        document.getElementById('addBucket').addEventListener('click', () => {
+        document.getElementById('addBucket').addEventListener('click', async () => {
             const newBucketInput = document.getElementById('newBucket');
             const bucketName = newBucketInput.value.trim();
             
@@ -370,9 +527,29 @@
                 const bucketExists = Array.from(existingChips).some(chip => chip.dataset.bucket === bucketName);
                 
                 if (!bucketExists) {
-                    addBucketChip(bucketName);
-                    newBucketInput.value = '';
-                    loadCachedManifests();
+                    try {
+                        // Save bucket to server
+                        const response = await fetch('/api/buckets', {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                            },
+                            body: JSON.stringify({ bucket_names: [bucketName] }), // Send as an array
+                        });
+
+                        if (!response.ok) {
+                            const error = await response.json();
+                            throw new Error(error.error || 'Failed to save bucket');
+                        }
+
+                        // Add bucket chip to UI
+                        addBucketChip(bucketName);
+                        newBucketInput.value = '';
+                        loadCachedManifests();
+                    } catch (error) {
+                        console.error('Error saving bucket:', error);
+                        alert('Error saving bucket: ' + error.message);
+                    }
                 } else {
                     alert('This bucket is already in the list');
                 }
@@ -419,6 +596,7 @@
                                     <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${bucket}</td>
                                     <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${manifest.added_date}</td>
                                     <td class="px-6 py-4 text-sm text-gray-900">${manifest.key}</td>
+                                    <td class="px-6 py-4 text-sm text-gray-900">${manifest.source_bucket || bucket}</td>
                                 </tr>
                             `;
                             totalManifests++;
@@ -492,6 +670,7 @@
                                 <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${bucket}</td>
                                 <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${manifest.added_date}</td>
                                 <td class="px-6 py-4 text-sm text-gray-900">${manifest.key}</td>
+                                <td class="px-6 py-4 text-sm text-gray-900">${manifest.source_bucket || bucket}</td>
                             `;
                             
                             fragment.appendChild(row);
@@ -594,18 +773,48 @@
                     body: JSON.stringify(body),
                 });
 
+                console.log('Response status:', response.status);  // Debug log
                 const data = await response.json();
+                console.log('Response data:', data);  // Debug log
                 
                 if (!response.ok) {
                     // Display error message from the API response
                     const errorMessage = data.error || 'An unexpected error occurred';
+                    console.error('API Error:', errorMessage);  // Debug log
                     alert(errorMessage);
                     hideLoading();
                     return;
                 }
 
                 if (data.error) {
+                    console.error('Data Error:', data.error);  // Debug log
                     alert(data.error);
+                    hideLoading();
+                    return;
+                }
+
+                // Validate data structure
+                if (!data || typeof data !== 'object') {
+                    console.error('Invalid data structure:', data);
+                    alert('Invalid data structure received from server');
+                    hideLoading();
+                    return;
+                }
+
+                // For search operation, we need type and results
+                if (operationType === 'search') {
+                    if (!data.type || !data.results) {
+                        console.error('Missing required fields in data:', data);
+                        alert('Missing required fields in server response');
+                        hideLoading();
+                        return;
+                    }
+                }
+
+                // For path size calculation, we only need results
+                if (operationType === 'calculate' && !data.results) {
+                    console.error('Missing results in data:', data);
+                    alert('Missing results in server response');
                     hideLoading();
                     return;
                 }
@@ -615,76 +824,96 @@
                 resultsDiv.style.display = 'block';
 
                 // Update summary
+                console.log('Operation type:', operationType);  // Debug log
+                console.log('Data type:', data.type);  // Debug log
+                console.log('Results:', data.results);  // Debug log
+
+                // Set table headers based on operation type
+                const tableHeader = document.getElementById('resultsTableHeader');
+                tableHeader.innerHTML = `
+                    <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100" onclick="sortTable(0)">
+                        Bucket <span class="sort-icon">↕</span>
+                    </th>
+                    <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100" onclick="sortTable(1)">
+                        Source <span class="sort-icon">↕</span>
+                    </th>
+                    <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100" onclick="sortTable(2)">
+                        Path <span class="sort-icon">↕</span>
+                    </th>
+                    <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100" onclick="sortTable(3)">
+                        Size (GB) <span class="sort-icon">↕</span>
+                    </th>
+                    <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100" onclick="sortTable(4)">
+                        Objects <span class="sort-icon">↕</span>
+                    </th>
+                    <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100" onclick="sortTable(5)">
+                        Type <span class="sort-icon">↕</span>
+                    </th>
+                `;
+
+                // Update summary information
                 if (operationType === 'search') {
                     if (data.type === 'folders') {
-                        document.getElementById('resultCount').textContent = `${data.total_folders} folders`;
+                        document.getElementById('resultCount').textContent = `${data.total_folders || 0} folders`;
                     } else {
-                        document.getElementById('resultCount').textContent = `${data.total_objects} objects`;
+                        document.getElementById('resultCount').textContent = `${data.total_objects || 0} objects`;
                     }
                 } else {
-                    document.getElementById('resultCount').textContent = `${data.total_paths} paths`;
+                    document.getElementById('resultCount').textContent = `${data.total_paths || 0} paths`;
                 }
-                document.getElementById('totalSize').textContent = `Total Size: ${formatSize(data.total_size)}`;
+                document.getElementById('totalSize').textContent = `Total Size: ${formatSizeWithUnit(data.total_size || 0)}`;
 
                 // Update table
-                const tableHeader = document.getElementById('tableHeader');
-                const tableBody = document.getElementById('tableBody');
+                const tableBody = document.getElementById('resultsTableBody');
                 
                 // Clear existing content
-                tableHeader.innerHTML = '';
                 tableBody.innerHTML = '';
 
-                // Add headers based on operation type
-                if (operationType === 'search') {
-                    if (data.type === 'folders') {
-                        tableHeader.innerHTML = `
-                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Folder Path</th>
-                            <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Size</th>
-                            <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Files</th>
-                        `;
-                    } else {
-                        tableHeader.innerHTML = `
-                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Object Key</th>
-                            <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Size</th>
-                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Last Modified</th>
-                        `;
-                    }
-                } else {
-                    tableHeader.innerHTML = `
-                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Path</th>
-                        <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Size</th>
-                        <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Objects</th>
-                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Type</th>
-                    `;
+                // Add rows
+                if (!data.results || !Array.isArray(data.results)) {
+                    console.error('Invalid results data:', data.results);
+                    alert('Invalid results data received from server');
+                    hideLoading();
+                    return;
                 }
 
-                // Add rows
-                data.results.forEach(result => {
-                    const row = document.createElement('tr');
-                    if (operationType === 'search') {
-                        if (data.type === 'folders') {
+                try {
+                    data.results.forEach((result, index) => {
+                        const row = document.createElement('tr');
+                        
+                        if (operationType === 'search') {
                             row.innerHTML = `
-                                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${result.Folder_Path}</td>
-                                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-right">${formatSize(result.Total_Size)}</td>
-                                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-right">${result.File_Count}</td>
+                                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${result.Bucket || ''}</td>
+                                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${result.Source || ''}</td>
+                                <td class="px-6 py-4 text-sm text-gray-900 truncate">${result.Folder_Path || ''}</td>
+                                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-right">${formatSize(result.Total_Size || 0)}</td>
+                                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-right">${result.File_Count || 0}</td>
+                                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                                    <span class="status-badge folder">Folder</span>
+                                </td>
                             `;
                         } else {
                             row.innerHTML = `
-                                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${result.Key}</td>
-                                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-right">${formatSize(result.Size)}</td>
-                                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${result.LastModifiedDate}</td>
+                                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${result.bucket || ''}</td>
+                                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${result.source || ''}</td>
+                                <td class="px-6 py-4 text-sm text-gray-900 truncate">${result.path || ''}</td>
+                                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-right">${formatSize(result.total_size || 0)}</td>
+                                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-right">${result.object_count || 0}</td>
+                                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                                    <span class="status-badge ${result.is_folder ? 'folder' : 'object'}">
+                                        ${result.is_folder ? 'Folder' : 'Object'}
+                                    </span>
+                                </td>
                             `;
                         }
-                    } else {
-                        row.innerHTML = `
-                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${result.path}</td>
-                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-right">${formatSize(result.total_size)}</td>
-                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-right">${result.object_count}</td>
-                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${result.is_folder ? 'Folder' : 'Object'}</td>
-                        `;
-                    }
-                    tableBody.appendChild(row);
-                });
+                        tableBody.appendChild(row);
+                    });
+                } catch (error) {
+                    console.error('Error processing results:', error);
+                    alert('Error processing results: ' + error.message);
+                    hideLoading();
+                    return;
+                }
 
             } catch (error) {
                 console.error('Error:', error);
@@ -696,6 +925,133 @@
 
         // Handle get latest manifests button
         document.getElementById('getLatestManifests').addEventListener('click', fetchManifests);
+
+        // Handle clear cache button
+        document.getElementById('clearManifestCache').addEventListener('click', async () => {
+            try {
+                const response = await fetch('/api/manifests/clear-cache', {
+                    method: 'POST'
+                });
+                const data = await response.json();
+                
+                if (response.ok) {
+                    alert('Manifest cache cleared successfully');
+                    // Reload manifests
+                    fetchManifests();
+                } else {
+                    alert(data.error || 'Failed to clear manifest cache');
+                }
+            } catch (error) {
+                console.error('Error clearing manifest cache:', error);
+                alert('An error occurred while clearing the manifest cache');
+            }
+        });
+
+        // Add download CSV functionality
+        document.getElementById('downloadCsv').addEventListener('click', () => {
+            const operationType = document.querySelector('input[name="operationType"]:checked').value;
+            const tableBody = document.getElementById('resultsTableBody');
+            const rows = Array.from(tableBody.getElementsByTagName('tr'));
+            
+            if (rows.length === 0) {
+                alert('No data to download');
+                return;
+            }
+
+            // Get headers based on operation type
+            const headers = Array.from(document.getElementById('resultsTableHeader').getElementsByTagName('th'))
+                .map(th => th.textContent.trim().replace('↕', '').trim());
+
+            // Create CSV content
+            let csvContent = headers.join(',') + '\n';
+
+            // Add rows
+            rows.forEach(row => {
+                const cells = Array.from(row.getElementsByTagName('td'));
+                const rowData = cells.map(cell => {
+                    // Handle the status badge in the Type column
+                    if (cell.querySelector('.status-badge')) {
+                        return cell.querySelector('.status-badge').textContent.trim();
+                    }
+                    return cell.textContent.trim();
+                });
+                csvContent += rowData.join(',') + '\n';
+            });
+
+            // Create and download the file
+            const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+            const filename = `${operationType}_results_${timestamp}.csv`;
+            
+            a.href = url;
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            window.URL.revokeObjectURL(url);
+            document.body.removeChild(a);
+        });
+
+        let currentSort = {
+            column: 0,
+            direction: 'asc'
+        };
+
+        function sortTable(column) {
+            const tbody = document.getElementById('resultsTableBody');
+            const rows = Array.from(tbody.getElementsByTagName('tr'));
+            const headers = document.getElementsByTagName('th');
+            const operationType = document.querySelector('input[name="operationType"]:checked').value;
+            
+            // Update sort direction
+            if (currentSort.column === column) {
+                currentSort.direction = currentSort.direction === 'asc' ? 'desc' : 'asc';
+            } else {
+                currentSort.column = column;
+                currentSort.direction = 'asc';
+            }
+
+            // Update sort icons
+            for (let i = 0; i < headers.length; i++) {
+                const icon = headers[i].querySelector('.sort-icon');
+                if (i === column) {
+                    icon.textContent = currentSort.direction === 'asc' ? '↑' : '↓';
+                } else {
+                    icon.textContent = '↕';
+                }
+            }
+
+            // Sort the rows
+            rows.sort((a, b) => {
+                let aValue = a.cells[column].textContent.trim();
+                let bValue = b.cells[column].textContent.trim();
+
+                if (operationType === 'search') {
+                    // Special handling for search operation
+                    if (column === 3) { // Size column
+                        aValue = parseFloat(aValue);
+                        bValue = parseFloat(bValue);
+                    }
+                } else {
+                    // Special handling for path depth operation
+                    if (column === 3) { // Size column
+                        aValue = parseFloat(aValue);
+                        bValue = parseFloat(bValue);
+                    } else if (column === 4) { // Objects column
+                        aValue = parseInt(aValue);
+                        bValue = parseInt(bValue);
+                    }
+                }
+
+                if (aValue < bValue) return currentSort.direction === 'asc' ? -1 : 1;
+                if (aValue > bValue) return currentSort.direction === 'asc' ? 1 : -1;
+                return 0;
+            });
+
+            // Reorder the rows in the table
+            rows.forEach(row => tbody.appendChild(row));
+        }
 
         // Initialize the page
         loadBucketHistory();
